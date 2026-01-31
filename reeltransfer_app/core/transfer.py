@@ -28,6 +28,7 @@ def build_plan(
     include_subdirs: bool = True,
     move_files: bool = True,
     mirror: bool = False,
+    dry_run: bool = False,
     retry_count: int = 1,
     retry_wait_sec: int = 1,
     multithread_count: int = 4,
@@ -49,6 +50,8 @@ def build_plan(
         args.append("/MOVE")
     if mirror:
         args.append("/MIR")
+    if dry_run:
+        args.append("/L")
 
     args += [f"/R:{max(retry_count, 0)}", f"/W:{max(retry_wait_sec, 0)}"]
     if multithread_count and multithread_count > 0:
@@ -63,6 +66,39 @@ def build_plan(
     args += ["/NFL", "/NDL", "/NP", "/TEE"]
 
     return RoboCopyPlan(src=src, dst=dst, args=args)
+
+
+def estimate_transfer(
+    src: Path,
+    *,
+    include_subdirs: bool,
+    include_files: list[str] | None = None,
+    files: list[Path] | None = None,
+) -> tuple[int, int]:
+    """
+    Returns (file_count, total_bytes)
+    """
+    targets: Iterable[Path]
+
+    if files:
+        targets = files
+    elif include_files:
+        targets = [src / name for name in include_files]
+    else:
+        targets = iter_source_files(src, include_subdirs=include_subdirs)
+
+    count = 0
+    total = 0
+    for f in targets:
+        if not f.exists() or not f.is_file():
+            continue
+        try:
+            total += f.stat().st_size
+            count += 1
+        except OSError:
+            continue
+
+    return count, total
 
 
 def is_windows() -> bool:

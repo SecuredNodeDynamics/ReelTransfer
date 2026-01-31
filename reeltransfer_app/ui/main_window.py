@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from typing import Optional
 
-from PySide6.QtCore import Qt, QProcess
+from PySide6.QtCore import Qt, QProcess, QSettings
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -16,12 +17,13 @@ from reeltransfer_app.core.transfer import (
     is_windows,
     find_duplicates,
     find_duplicates_for_files,
+    estimate_transfer,
     apply_duplicate_renames,
 )
 
 
 APP_NAME = "ReelTransfer"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 
 class MainWindow(QMainWindow):
@@ -36,6 +38,7 @@ class MainWindow(QMainWindow):
         self._duplicate_action: Optional[str] = None
         self._duplicate_pairs: list[tuple[Path, Path]] = []
         self._source_files: list[Path] = []
+        self._settings = QSettings("ReelTransfer", "ReelTransfer")
 
         # Menu
         help_menu = self.menuBar().addMenu("Help")
@@ -86,7 +89,12 @@ class MainWindow(QMainWindow):
         layout.addLayout(dupes)
         self.chk_check_dupes = QCheckBox("Check for duplicates before transfer")
         self.chk_check_dupes.setChecked(True)
+        self.chk_dry_run = QCheckBox("Dry run (/L) — no changes")
+        self.chk_check_space = QCheckBox("Verify destination free space")
+        self.chk_check_space.setChecked(True)
         dupes.addWidget(self.chk_check_dupes)
+        dupes.addWidget(self.chk_dry_run)
+        dupes.addWidget(self.chk_check_space)
         dupes.addStretch(1)
 
         # Robocopy tuning
@@ -142,6 +150,8 @@ class MainWindow(QMainWindow):
         self.btn_stop.clicked.connect(self._stop)
         self.chk_mirror.toggled.connect(self._mirror_toggled)
         self.src_edit.textEdited.connect(self._src_text_edited)
+
+        self._load_settings()
 
     def _show_about(self) -> None:
         QMessageBox.information(
@@ -201,6 +211,9 @@ class MainWindow(QMainWindow):
 
         plan = self._build_plan(for_execution=True)
         if not plan:
+            return
+
+        if not self._preflight_check(plan.src, plan.dst):
             return
 
         if self._process and self._process.state() != QProcess.NotRunning:
@@ -376,6 +389,7 @@ class MainWindow(QMainWindow):
                 include_subdirs=self.chk_subdirs.isChecked(),
                 move_files=self.chk_move.isChecked(),
                 mirror=self.chk_mirror.isChecked(),
+                dry_run=self.chk_dry_run.isChecked(),
                 retry_count=self.spin_retries.value(),
                 retry_wait_sec=self.spin_wait.value(),
                 multithread_count=self.spin_threads.value(),
@@ -385,3 +399,66 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Invalid Setup", str(e))
             return None
+
+    def _preflight_check(self, src: Path, dst: Path) -> bool:
+        files = self._source_files if self._source_files else None
+        include_files = [p.name for p in files] if files else None
+
+        count, total_bytes = estimate_transfer(
+            src,
+            include_subdirs=self.chk_subdirs.isChecked(),
+            include_files=include_files,
+            files=files,
+        )
+
+        if count > 0:
+            size_mb = total_bytes / (1024 * 1024)
+            self.log.append(f"<b>Preflight:</b> {count} file(s), ~{size_mb:,.2f} MB")
+
+        if self.chk_check_space.isChecked():
+            try:
+                free = shutil.disk_usage(dst).free
+                if total_bytes > 0 and free < total_bytes:
+                    needed_mb = total_bytes / (1024 * 1024)
+                    free_mb = free / (1024 * 1024)
+                    QMessageBox.warning(
+                        self,
+                        "Low disk space",
+                        f"Destination may not have enough space.\n\n"
+                        f"Needed: ~{needed_mb:,.2f} MB\n"
+                        f"Free: ~{free_mb:,.2f} MB",
+                    )
+            except Exception:
+                self.log.append("<b>Preflight:</b> Unable to check free space.")
+
+        if self.chk_dry_run.isChecked():
+            self.statusBar().showMessage("Dry run enabled — no files will be changed", 6000)
+
+        return True
+
+    def _load_settings(self) -> None:
+        self.src_edit.setText(self._settings.value("src", ""))
+        self.dst_edit.setText(self._settings.value("dst", ""))
+        self.chk_subdirs.setChecked(self._settings.value("subdirs", True, type=bool))
+        self.chk_move.setChecked(self._settings.value("move", True, type=bool))
+        self.chk_mirror.setChecked(self._settings.value("mirror", False, type=bool))
+        self.chk_check_dupes.setChecked(self._settings.value("dupes", True, type=bool))
+        self.chk_dry_run.setChecked(self._settings.value("dry_run", False, type=bool))
+        self.chk_check_space.setChecked(self._settings.value("check_space", True, type=bool))
+        self.spin_retries.setValue(self._settings.value("retries", 1, type=int))
+        self.spin_wait.setValue(self._settings.value("wait", 1, type=int))
+        self.spin_threads.setValue(self._settings.value("threads", 4, type=int))
+
+    def closeEvent(self, event) -> None:
+        self._settings.setValue("src", self.src_edit.text())
+        self._settings.setValue("dst", self.dst_edit.text())
+        self._settings.setValue("subdirs", self.chk_subdirs.isChecked())
+        self._settings.setValue("move", self.chk_move.isChecked())
+        self._settings.setValue("mirror", self.chk_mirror.isChecked())
+        self._settings.setValue("dupes", self.chk_check_dupes.isChecked())
+        self._settings.setValue("dry_run", self.chk_dry_run.isChecked())
+        self._settings.setValue("check_space", self.chk_check_space.isChecked())
+        self._settings.setValue("retries", self.spin_retries.value())
+        self._settings.setValue("wait", self.spin_wait.value())
+        self._settings.setValue("threads", self.spin_threads.value())
+        super().closeEvent(event)
