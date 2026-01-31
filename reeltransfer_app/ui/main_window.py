@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
-from typing import Optional
+from typing import Optional, Literal, cast, Any
 
 from PySide6.QtCore import Qt, QProcess, QSettings
 from PySide6.QtGui import QAction
@@ -26,6 +26,13 @@ APP_NAME = "ReelTransfer"
 APP_VERSION = "1.2.0"
 
 
+def _to_int(value: object, default: int) -> int:
+    try:
+        return int(cast(Any, value))
+    except (TypeError, ValueError):
+        return default
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app) -> None:
         super().__init__()
@@ -35,7 +42,7 @@ class MainWindow(QMainWindow):
         self.resize(980, 640)
 
         self._process: Optional[QProcess] = None
-        self._duplicate_action: Optional[str] = None
+        self._duplicate_action: Optional[Literal["ask", "skip", "overwrite", "rename"]] = None
         self._duplicate_pairs: list[tuple[Path, Path]] = []
         self._source_files: list[Path] = []
         self._settings = QSettings("ReelTransfer", "ReelTransfer")
@@ -216,7 +223,7 @@ class MainWindow(QMainWindow):
         if not self._preflight_check(plan.src, plan.dst):
             return
 
-        if self._process and self._process.state() != QProcess.NotRunning:
+        if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             QMessageBox.information(self, "Busy", "A transfer is already running.")
             return
 
@@ -225,7 +232,7 @@ class MainWindow(QMainWindow):
         proc = QProcess(self)
         proc.setProgram(plan.command()[0])
         proc.setArguments(plan.command()[1:])
-        proc.setProcessChannelMode(QProcess.MergedChannels)
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
         proc.readyReadStandardOutput.connect(lambda: self._read_output(proc))
         proc.finished.connect(self._on_finished)
@@ -237,12 +244,12 @@ class MainWindow(QMainWindow):
     def _stop(self) -> None:
         if not self._process:
             return
-        if self._process.state() != QProcess.NotRunning:
+        if self._process.state() != QProcess.ProcessState.NotRunning:
             self._process.kill()
             self.statusBar().showMessage("Transfer stopped", 4000)
 
     def _read_output(self, proc: QProcess) -> None:
-        data = proc.readAllStandardOutput().data().decode(errors="ignore")
+        data = bytes(proc.readAllStandardOutput().data()).decode(errors="ignore")
         if data:
             self.log.append(data.replace("\n", "<br>"))
 
@@ -318,10 +325,10 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle("Duplicates Found")
         box.setText(msg)
-        btn_skip = box.addButton("Skip existing", QMessageBox.AcceptRole)
-        btn_overwrite = box.addButton("Overwrite existing", QMessageBox.DestructiveRole)
-        btn_rename = box.addButton("Auto-rename duplicates", QMessageBox.ActionRole)
-        btn_cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+        btn_skip = box.addButton("Skip existing", QMessageBox.ButtonRole.AcceptRole)
+        btn_overwrite = box.addButton("Overwrite existing", QMessageBox.ButtonRole.DestructiveRole)
+        btn_rename = box.addButton("Auto-rename duplicates", QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         box.exec()
 
         clicked = box.clickedButton()
@@ -380,6 +387,7 @@ class MainWindow(QMainWindow):
         else:
             dup_action = "ask"
             self._duplicate_pairs = []
+        dup_action = cast(Literal["ask", "skip", "overwrite", "rename"], dup_action)
         self._duplicate_action = dup_action
 
         try:
@@ -437,17 +445,20 @@ class MainWindow(QMainWindow):
         return True
 
     def _load_settings(self) -> None:
-        self.src_edit.setText(self._settings.value("src", ""))
-        self.dst_edit.setText(self._settings.value("dst", ""))
-        self.chk_subdirs.setChecked(self._settings.value("subdirs", True, type=bool))
-        self.chk_move.setChecked(self._settings.value("move", True, type=bool))
-        self.chk_mirror.setChecked(self._settings.value("mirror", False, type=bool))
-        self.chk_check_dupes.setChecked(self._settings.value("dupes", True, type=bool))
-        self.chk_dry_run.setChecked(self._settings.value("dry_run", False, type=bool))
-        self.chk_check_space.setChecked(self._settings.value("check_space", True, type=bool))
-        self.spin_retries.setValue(self._settings.value("retries", 1, type=int))
-        self.spin_wait.setValue(self._settings.value("wait", 1, type=int))
-        self.spin_threads.setValue(self._settings.value("threads", 4, type=int))
+        self.src_edit.setText(str(self._settings.value("src", "")))
+        self.dst_edit.setText(str(self._settings.value("dst", "")))
+        self.chk_subdirs.setChecked(bool(self._settings.value("subdirs", True)))
+        self.chk_move.setChecked(bool(self._settings.value("move", True)))
+        self.chk_mirror.setChecked(bool(self._settings.value("mirror", False)))
+        self.chk_check_dupes.setChecked(bool(self._settings.value("dupes", True)))
+        self.chk_dry_run.setChecked(bool(self._settings.value("dry_run", False)))
+        self.chk_check_space.setChecked(bool(self._settings.value("check_space", True)))
+        retries_val = self._settings.value("retries", 1)
+        wait_val = self._settings.value("wait", 1)
+        threads_val = self._settings.value("threads", 4)
+        self.spin_retries.setValue(_to_int(retries_val, 1))
+        self.spin_wait.setValue(_to_int(wait_val, 1))
+        self.spin_threads.setValue(_to_int(threads_val, 4))
 
     def closeEvent(self, event) -> None:
         self._settings.setValue("src", self.src_edit.text())

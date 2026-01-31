@@ -21,10 +21,14 @@ Built with **Python + PySide6**, ReelTransfer is designed to replace manual drag
 
 - 📂 Select folders **or individual files** (multi‑select)
 - 👀 Preview the exact Robocopy command before running
+- 🧪 Dry run mode (/L) to simulate transfers safely
+- 📊 Preflight size estimate before transfer
+- 💾 Destination free‑space check
 - 🧹 Duplicate detection with Skip / Overwrite / Auto‑rename options
 - 🔁 Move or copy mode with optional subfolder inclusion
 - 🧵 Configurable retries, wait time, and multithread count
 - 📝 Live transfer log with clear status feedback
+- 💾 Remembers last used paths and settings
 - 🌙 Modern dark UI optimized for long sessions
 - 🪟 Native Windows installer
 

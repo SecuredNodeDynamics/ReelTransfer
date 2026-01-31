@@ -5,18 +5,18 @@ from PySide6.QtCore import Qt
 def dark_palette() -> QPalette:
     p = QPalette()
 
-    p.setColor(QPalette.Window, QColor(24, 24, 28))
-    p.setColor(QPalette.WindowText, Qt.white)
-    p.setColor(QPalette.Base, QColor(20, 20, 24))
-    p.setColor(QPalette.AlternateBase, QColor(30, 30, 36))
-    p.setColor(QPalette.ToolTipBase, Qt.white)
-    p.setColor(QPalette.ToolTipText, Qt.white)
-    p.setColor(QPalette.Text, Qt.white)
-    p.setColor(QPalette.Button, QColor(38, 38, 46))
-    p.setColor(QPalette.ButtonText, Qt.white)
-    p.setColor(QPalette.BrightText, Qt.red)
-    p.setColor(QPalette.Highlight, QColor(84, 126, 255))
-    p.setColor(QPalette.HighlightedText, Qt.black)
+    p.setColor(QPalette.ColorRole.Window, QColor(24, 24, 28))
+    p.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
+    p.setColor(QPalette.ColorRole.Base, QColor(20, 20, 24))
+    p.setColor(QPalette.ColorRole.AlternateBase, QColor(30, 30, 36))
+    p.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
+    p.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
+    p.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
+    p.setColor(QPalette.ColorRole.Button, QColor(38, 38, 46))
+    p.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
+    p.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
+    p.setColor(QPalette.ColorRole.Highlight, QColor(84, 126, 255))
+    p.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
 
     return p
 
