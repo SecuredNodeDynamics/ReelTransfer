@@ -24,7 +24,9 @@ Built with **Python + PySide6**, ReelTransfer is designed to replace manual drag
 - 👀 Preview the exact Robocopy command before running
 - 🧪 Dry run mode (/L) to simulate transfers safely
 - 📊 Preflight size estimate before transfer
+- 💾 Source/Destination storage cards (free/total space)
 - 💾 Destination free‑space check
+- 📈 Overall transfer progress bar
 - 🧹 Duplicate detection with Skip / Overwrite / Auto‑rename options
 - 🔁 Move or copy mode with optional subfolder inclusion
 - 🧵 Configurable retries, wait time, and multithread count
@@ -48,7 +50,7 @@ Built with **Python + PySide6**, ReelTransfer is designed to replace manual drag
 ## 📦 Installation
 
 ### 🔹 Windows (Recommended)
-1. Download `ReelTransfer-Setup-1.2.0.exe` from the **Releases** page
+1. Download `ReelTransfer-Setup-1.2.6.exe` from the **Releases** page
 2. Double‑click the installer
 3. Follow the setup wizard
 4. Launch ReelTransfer from the Start Menu
