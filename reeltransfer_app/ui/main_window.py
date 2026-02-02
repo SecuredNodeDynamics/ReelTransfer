@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import shutil
 from typing import Optional, Literal, cast, Any
 
@@ -9,7 +10,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QMessageBox,
-    QLineEdit, QCheckBox, QTextBrowser, QStatusBar, QSpinBox
+    QLineEdit, QCheckBox, QTextBrowser, QStatusBar, QSpinBox, QProgressBar
 )
 
 from reeltransfer_app.core.transfer import (
@@ -23,7 +24,7 @@ from reeltransfer_app.core.transfer import (
 
 
 APP_NAME = "ReelTransfer"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 
 def _to_int(value: object, default: int) -> int:
@@ -46,6 +47,15 @@ class MainWindow(QMainWindow):
         self._duplicate_pairs: list[tuple[Path, Path]] = []
         self._source_files: list[Path] = []
         self._settings = QSettings("ReelTransfer", "ReelTransfer")
+        self._progress_total_files = 0
+        self._progress_total_bytes = 0
+        self._progress_copied_files = 0
+        self._progress_copied_bytes = 0
+        self._output_buffer = ""
+        self._file_line_re = re.compile(
+            r"^\s*(New File|Newer|Older|Changed)\s+([0-9,]+)\s+",
+            re.IGNORECASE,
+        )
 
         # Menu
         help_menu = self.menuBar().addMenu("Help")
@@ -132,11 +142,20 @@ class MainWindow(QMainWindow):
         self.btn_preview = QPushButton("Preview Command")
         self.btn_start = QPushButton("Start Transfer")
         self.btn_stop = QPushButton("Stop")
+        self.btn_clear = QPushButton("Clear Log")
         self.btn_stop.setEnabled(False)
         actions.addWidget(self.btn_preview)
         actions.addWidget(self.btn_start)
         actions.addWidget(self.btn_stop)
+        actions.addWidget(self.btn_clear)
         actions.addStretch(1)
+
+        # Progress
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Progress: 0%")
+        layout.addWidget(self.progress)
 
         # Log output
         self.log = QTextBrowser()
@@ -155,6 +174,7 @@ class MainWindow(QMainWindow):
         self.btn_preview.clicked.connect(self._preview)
         self.btn_start.clicked.connect(self._start)
         self.btn_stop.clicked.connect(self._stop)
+        self.btn_clear.clicked.connect(self.log.clear)
         self.chk_mirror.toggled.connect(self._mirror_toggled)
         self.src_edit.textEdited.connect(self._src_text_edited)
 
@@ -252,9 +272,12 @@ class MainWindow(QMainWindow):
         data = bytes(proc.readAllStandardOutput().data()).decode(errors="ignore")
         if data:
             self.log.append(data.replace("\n", "<br>"))
+            self._consume_output_lines(data)
 
     def _on_finished(self, exit_code: int, _status) -> None:
         self._set_running(False)
+        if self._progress_total_files or self._progress_total_bytes:
+            self._update_progress(final=True)
 
         # Robocopy exit codes: 0-7 are success/warnings, >=8 is failure
         if exit_code >= 8:
@@ -283,6 +306,9 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(not running)
         self.btn_stop.setEnabled(running)
         self.btn_preview.setEnabled(not running)
+        if running:
+            self.progress.setValue(0)
+            self.progress.setFormat("Progress: 0%")
 
     def _choose_duplicate_action(
         self,
@@ -403,6 +429,7 @@ class MainWindow(QMainWindow):
                 multithread_count=self.spin_threads.value(),
                 duplicate_action=dup_action,
                 include_files=include_files,
+                include_file_list=for_execution,
             )
         except Exception as e:
             QMessageBox.critical(self, "Invalid Setup", str(e))
@@ -419,6 +446,10 @@ class MainWindow(QMainWindow):
             files=files,
         )
 
+        self._progress_total_files = count
+        self._progress_total_bytes = total_bytes
+        self._progress_copied_files = 0
+        self._progress_copied_bytes = 0
         if count > 0:
             size_mb = total_bytes / (1024 * 1024)
             self.log.append(f"<b>Preflight:</b> {count} file(s), ~{size_mb:,.2f} MB")
@@ -441,8 +472,71 @@ class MainWindow(QMainWindow):
 
         if self.chk_dry_run.isChecked():
             self.statusBar().showMessage("Dry run enabled — no files will be changed", 6000)
+            self.progress.setFormat("Progress: 0% (dry run)")
 
         return True
+
+    def _consume_output_lines(self, data: str) -> None:
+        self._output_buffer += data
+        lines = self._output_buffer.splitlines(keepends=True)
+        if not lines:
+            return
+        if not lines[-1].endswith("\n") and not lines[-1].endswith("\r"):
+            self._output_buffer = lines[-1]
+            lines = lines[:-1]
+        else:
+            self._output_buffer = ""
+
+        for line in lines:
+            self._update_progress_from_line(line.strip())
+
+    def _update_progress_from_line(self, line: str) -> None:
+        if not line:
+            return
+        match = self._file_line_re.match(line)
+        if not match:
+            return
+        size_text = match.group(2).replace(",", "")
+        try:
+            size = int(size_text)
+        except ValueError:
+            size = 0
+
+        self._progress_copied_files += 1
+        self._progress_copied_bytes += max(size, 0)
+        self._update_progress()
+
+    def _update_progress(self, *, final: bool = False) -> None:
+        total_bytes = self._progress_total_bytes
+        total_files = self._progress_total_files
+        copied_bytes = self._progress_copied_bytes
+        copied_files = self._progress_copied_files
+
+        if total_bytes > 0:
+            percent = min(100, int((copied_bytes / total_bytes) * 100))
+            self.progress.setValue(percent)
+            self.progress.setFormat(
+                f"Progress: {percent}% ({self._format_bytes(copied_bytes)} / {self._format_bytes(total_bytes)})"
+            )
+        elif total_files > 0:
+            percent = min(100, int((copied_files / total_files) * 100))
+            self.progress.setValue(percent)
+            self.progress.setFormat(
+                f"Progress: {percent}% ({copied_files} / {total_files} files)"
+            )
+        elif final:
+            self.progress.setValue(100)
+            self.progress.setFormat("Progress: 100%")
+
+    @staticmethod
+    def _format_bytes(value: int) -> str:
+        units = ["B", "KB", "MB", "GB", "TB"]
+        size = float(value)
+        for unit in units:
+            if size < 1024 or unit == units[-1]:
+                return f"{size:,.2f} {unit}"
+            size /= 1024
+        return f"{size:,.2f} TB"
 
     def _load_settings(self) -> None:
         self.src_edit.setText(str(self._settings.value("src", "")))
